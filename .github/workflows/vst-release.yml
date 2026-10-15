@@ -1,0 +1,32 @@
+# Build Matrix into a DRAFT release (matrix-vst-v<version>): Actions -> "VST release (draft)" -> Run workflow.
+# dry_run (default on) builds the zip and skin previews as run artifacts only.
+name: VST release (draft)
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version, e.g. 0.1.0
+        required: true
+        default: 0.1.0
+      dry_run:
+        description: Build only (zip + skin previews as run artifacts), no draft release
+        type: boolean
+        default: true
+
+jobs:
+  matrix:
+    uses: sd88me/mpc-vst-plugins/.github/workflows/vst-release.yml@259f75d0ce0f836cfd89cc0a33c550b55917cffc
+    permissions:
+      contents: write
+    with:
+      tag: matrix-vst-v${{ inputs.version }}
+      version: ${{ inputs.version }}
+      tools_ref: 259f75d0ce0f836cfd89cc0a33c550b55917cffc
+      vst_dir: vst
+      build: bash vst/build.sh
+      host_test: bash vst/test.sh
+      plugin_id: matrix
+      license: MIT
+      about: Drum step sequencer as an insert effect after the MIDIbox SEQ BLM 16x16 - 16 tracks x up to 64 steps (polymeter), velocity, chance and ratchets per step, mute/solo, 16 patterns switched on the bar, host clock with swing, own ALSA MIDI port, 32 presets; the grid runs on iPad/phone in the WLAN on the shared Force hub.
+      dry_run: ${{ inputs.dry_run }}
