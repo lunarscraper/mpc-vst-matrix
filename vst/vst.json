@@ -1,0 +1,11 @@
+{
+  "name": "Matrix",
+  "vendor": "lunarscraper",
+  "uid": "MtxD",
+  "version": 1000,
+  "so": "matrix.so",
+  "effect": true,
+  "module": "module.json",
+  "layout": "layout.conf",
+  "_comment": "Insert effect (audio passed through untouched, takes no instrument slot): a 16 x 64 drum step sequencer after the MIDIbox SEQ BLM; the grid is on the iPad/phone (shared Force hub), the skin holds transport, kit and presets. Notes go out through the plugin's own ALSA port 'Matrix' / 'MIDI Out'. vst.json/module.json only feed mpc-vst-plugins' tools/gen_vst.py for params.h + the skin; the plugin is matrix_vst.cpp, built by build.sh."
+}

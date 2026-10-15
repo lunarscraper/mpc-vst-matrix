@@ -1,0 +1,25 @@
+{
+  "_comment": "Not a real Schwung module -- chain_params lists the VST parameters of matrix_vst.cpp so mpc-vst-plugins' tools/gen_vst.py can generate params.h + the skin. Keys must match matrix_vst.cpp (KEYS[]). New parameters are appended only; projects and presets are restored from the plugin's own text state, not by index.",
+  "chain_params": [
+    {"key": "pattern", "name": "Pattern", "min": 1, "max": 16},
+    {"key": "swing", "name": "Swing", "min": 50, "max": 75},
+    {"key": "gate", "name": "Gate", "min": 5, "max": 95},
+    {"key": "tap_vel", "name": "Tap Velocity", "min": 1, "max": 127},
+    {"key": "status", "name": "Status", "min": 0, "max": 1},
+    {"key": "steps", "name": "Steps", "min": 0, "max": 1},
+    {"key": "track", "name": "Track", "min": 1, "max": 16},
+    {"key": "note", "name": "Note", "min": 0, "max": 127},
+    {"key": "channel", "name": "Channel", "min": 1, "max": 16},
+    {"key": "length", "name": "Length", "min": 1, "max": 64},
+    {"key": "mute", "name": "Mute", "options": ["OFF", "MUTE"]},
+    {"key": "solo", "name": "Solo", "options": ["OFF", "SOLO"]},
+    {"key": "learn", "name": "Learn Note", "access": "write"},
+    {"key": "clear", "name": "Clear Track", "access": "write"},
+    {"key": "ctl_ch", "name": "Control Ch", "options": ["OFF", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16"]},
+    {"key": "web", "name": "Web View", "options": ["OFF", "ON"]},
+    {"key": "web_addr", "name": "Phone Address", "min": 0, "max": 1},
+    {"key": "preset", "name": "Preset", "min": 1, "max": 32},
+    {"key": "load", "name": "Load", "access": "write"},
+    {"key": "save", "name": "Save", "access": "write"}
+  ]
+}

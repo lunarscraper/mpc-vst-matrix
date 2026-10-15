@@ -1,0 +1,433 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Matrix</title>
+<style>
+/* Matrix: the BLM-style grid of the drum sequencer (matrix_vst.cpp), served by the plugin itself on the
+   shared Force hub. 16 tracks x 16 steps of one page; NOTEN toggles steps, VELOCITY / CHANCE / RATCHET
+   show the chosen track as bars (rows = value), like the MIDIbox BLM's track view. */
+:root { --bg: #141518; --panel: #1f2126; --line: #2e3138; --fg: #f0ece4; --muted: #8f8b84;
+  --off: #24272d; --off2: #2c3037; --dead: #18191c; --on: #3ccf8e; --hot: #c8ffe6; --warn: #ffb547;
+  --sans: -apple-system, system-ui, "Segoe UI", sans-serif; --mono: ui-monospace, Menlo, monospace; }
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--sans); }
+body { padding: env(safe-area-inset-top, 0) 10px calc(env(safe-area-inset-bottom, 0) + 20px); -webkit-user-select: none; user-select: none; }
+button { font: 600 13px var(--sans); color: var(--fg); background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; cursor: pointer; }
+button[aria-pressed="true"] { background: var(--on); color: #0d1712; border-color: var(--on); }
+button:active { transform: scale(.97); }
+header { position: sticky; top: 0; z-index: 5; background: var(--bg); padding: 8px 0 6px; display: grid; gap: 6px; }
+.row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.home { text-decoration: none; color: var(--muted); font: 600 22px var(--sans); border: 1px solid var(--line); border-radius: 10px; width: 36px; height: 32px; display: inline-flex; align-items: center; justify-content: center; }
+.title { font: 700 19px var(--sans); }
+.where { font: 500 14px var(--mono); color: var(--on); margin-left: auto; }
+.where.stop { color: var(--muted); }
+.pats { display: grid; grid-template-columns: repeat(16, minmax(0, 1fr)); gap: 4px; }
+.pats button { padding: 7px 0; position: relative; }
+.pats button.used::after { content: ""; position: absolute; left: 50%; bottom: 3px; width: 4px; height: 4px; margin-left: -2px; border-radius: 50%; background: var(--muted); }
+.pats button.play { border-color: var(--on); color: var(--on); }
+.pats button.edit { background: #2f3a35; }
+.pats button.queued { animation: blink .5s steps(2) infinite; border-color: var(--warn); color: var(--warn); }
+@keyframes blink { 50% { opacity: .35; } }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
+.seg button { border: 0; border-radius: 0; background: transparent; padding: 7px 11px; }
+.seg button[aria-pressed="true"] { background: var(--on); color: #0d1712; }
+.spacer { flex: 1; }
+.lbl { font: 600 11px var(--sans); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+/* the grid: one header column + 16 step columns */
+.board { display: grid; grid-template-columns: minmax(84px, 150px) 1fr; gap: 4px; margin-top: 6px; touch-action: none; }
+.heads, .cells { display: grid; grid-template-rows: repeat(16, var(--cell)); gap: 3px; }
+.cells { grid-template-columns: repeat(16, minmax(0, 1fr)); column-gap: 3px; }
+.cells .c:nth-child(16n+5), .cells .c:nth-child(16n+9), .cells .c:nth-child(16n+13) { margin-left: 4px; }
+.head { display: flex; align-items: center; gap: 3px; min-width: 0; }
+.head .nm { flex: 1; min-width: 0; height: 100%; text-align: left; padding: 0 6px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 12px; border-radius: 6px; }
+.head .nm.sel { border-color: var(--on); color: var(--on); }
+.head .nm.learn { border-color: var(--warn); color: var(--warn); animation: blink .6s steps(2) infinite; }
+.head .ms { width: 24px; height: 100%; padding: 0; font-size: 11px; border-radius: 6px; }
+.head .ms.m[aria-pressed="true"] { background: #c0392b; border-color: #c0392b; color: #fff; }
+.head .ms.s[aria-pressed="true"] { background: var(--warn); border-color: var(--warn); color: #1b1408; }
+.head.muted .nm { opacity: .45; }
+.c { border-radius: 5px; background: var(--off); position: relative; }
+.c.g2 { background: var(--off2); }
+.c.dead { background: var(--dead); }
+.c.wrap:not(.on) { background: #1c1e22; }
+.c.on { background: var(--on); }
+.c.ph { box-shadow: inset 0 0 0 2px #fff; }
+.c .p { position: absolute; inset: auto 3px 3px 3px; height: 3px; border-radius: 2px; background: rgba(0,0,0,.45); }
+.c .r { position: absolute; top: 2px; right: 4px; font: 700 10px var(--sans); color: rgba(0,0,0,.6); }
+.c.bar { background: #2f6e52; }
+.c.bartop { background: var(--on); }
+.foot { display: grid; gap: 10px; margin-top: 12px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; display: grid; gap: 8px; }
+.sl { display: grid; grid-template-columns: 88px 1fr 46px; align-items: center; gap: 8px; font-size: 13px; }
+.sl b { font: 500 13px var(--mono); text-align: right; }
+input[type=range] { width: 100%; accent-color: var(--on); }
+.sheet { position: fixed; inset: 0; background: rgba(0,0,0,.55); display: none; align-items: flex-end; justify-content: center; z-index: 10; }
+.sheet.open { display: flex; }
+.sheet .box { background: var(--panel); border: 1px solid var(--line); border-radius: 16px 16px 0 0; padding: 14px 14px calc(env(safe-area-inset-bottom, 0) + 16px); width: min(560px, 100%); display: grid; gap: 10px; max-height: 88vh; overflow: auto; }
+.sheet h3 { margin: 0; font-size: 17px; }
+input[type=text] { width: 100%; font: 16px var(--sans); color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+.num { display: inline-flex; align-items: center; gap: 6px; }
+.num b { font: 600 15px var(--mono); min-width: 74px; text-align: center; }
+.presets { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px; }
+.presets button { text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.presets button.empty { color: var(--muted); }
+.presets button.cur { border-color: var(--on); }
+.err { color: var(--warn); font-size: 13px; min-height: 16px; }
+@media (max-width: 600px) { .board { grid-template-columns: 64px 1fr; } .head .ms { display: none; } .head .nm { font-size: 10px; padding: 0 3px; } .seg button { padding: 7px 8px; } }
+</style>
+</head>
+<body>
+<header>
+  <div class="row"><a class="home" href="/" aria-label="Alle Plugins">&#8962;</a><span class="title">Matrix</span>
+    <span class="where stop" id="where">–</span></div>
+  <div class="pats" id="pats"></div>
+  <div class="row">
+    <span class="seg" id="modes"><button data-m="0" aria-pressed="true">Noten</button><button data-m="1">Velocity</button><button data-m="2">Chance</button><button data-m="3">Ratchet</button></span>
+    <span class="spacer"></span>
+    <span class="seg" id="pages"><button data-p="0" aria-pressed="true">1</button><button data-p="1">2</button><button data-p="2">3</button><button data-p="3">4</button></span>
+    <button id="follow" aria-pressed="true" title="Seite folgt dem Lauflicht">Folgen</button>
+  </div>
+</header>
+<div class="board" id="board"><div class="heads" id="heads"></div><div class="cells" id="cells"></div></div>
+<div class="err" id="err"></div>
+<div class="foot">
+  <div class="card">
+    <div class="row"><span class="lbl">Pattern tippen</span><span class="seg" id="tapmode"><button data-t="0" aria-pressed="true">Spielen + bearbeiten</button><button data-t="1">Nur bearbeiten</button></span>
+      <span class="spacer"></span><button id="pname">Name</button><button id="pcopy">Kopieren nach …</button><button id="pclear">Leeren</button></div>
+    <div class="sl"><span>Swing</span><input type="range" id="swing" min="50" max="75"><b id="swing_v"></b></div>
+    <div class="sl"><span>Gate</span><input type="range" id="gate" min="5" max="95"><b id="gate_v"></b></div>
+    <div class="sl"><span>Tipp-Velocity</span><input type="range" id="tv" min="1" max="127"><b id="tv_v"></b></div>
+    <div class="row"><span class="lbl">Noten der Spuren</span><button id="map0">36–51 (Force Pads)</button><button id="map1">General MIDI</button>
+      <span class="spacer"></span><button id="unmute">Alle Mutes aus</button><button id="unsolo">Alle Solos aus</button></div>
+  </div>
+  <div class="card">
+    <div class="row"><span class="lbl">Presets (ganzes Kit + 16 Patterns)</span><span class="spacer"></span>
+      <span class="seg" id="pmode"><button data-x="0" aria-pressed="true">Laden</button><button data-x="1">Speichern</button></span></div>
+    <div class="presets" id="presets"></div>
+  </div>
+</div>
+<div class="sheet" id="sheet"><div class="box">
+  <div class="row"><h3 id="s_title">Spur</h3><span class="spacer"></span><button id="s_hit">▶ Anhören</button><button id="s_close">Fertig</button></div>
+  <input type="text" id="s_name" maxlength="15" placeholder="Name">
+  <div class="row"><span class="lbl" style="width:70px">Note</span><span class="num"><button data-d="-12">−12</button><button data-d="-1">−</button><b id="s_note"></b><button data-d="1">+</button><button data-d="12">+12</button></span>
+    <button id="s_learn">Lernen</button></div>
+  <div class="row"><span class="lbl" style="width:70px">Kanal</span><span class="num"><button id="ch_m">−</button><b id="s_ch"></b><button id="ch_p">+</button></span></div>
+  <div class="sl"><span>Länge</span><input type="range" id="s_len" min="1" max="64"><b id="s_len_v"></b></div>
+  <div class="row"><button data-l="8">8</button><button data-l="12">12</button><button data-l="16">16</button><button data-l="24">24</button><button data-l="32">32</button><button data-l="48">48</button><button data-l="64">64</button><button id="s_lenall">Länge für alle Spuren</button></div>
+  <div class="row"><button id="s_rl">◀ Schieben</button><button id="s_rr">Schieben ▶</button><button id="s_rep">Wiederholen bis 64</button><span class="spacer"></span><button id="s_clear">Spur leeren</button></div>
+</div></div>
+<script>
+"use strict";
+const NT = 16, NS = 64;
+let S = null, rev = -1, edit = 0, page = 0, mode = 0, follow = true, tapMode = 0, pmode = 0;
+let pos = Array(NT).fill(-1), run = false, play = 0, queued = -1, step = -1;
+let sel = 0;
+const $ = id => document.getElementById(id);
+const hex = (s, i) => parseInt(s.substr(i * 2, 2), 16);
+function decode(j) {
+  j.V = j.vel.map(s => Array.from({length: NS}, (_, i) => hex(s, i)));
+  j.P = j.prob.map(s => Array.from({length: NS}, (_, i) => hex(s, i)));
+  j.R = j.rat.map(s => Array.from({length: NS}, (_, i) => +s[i]));
+  return j;
+}
+async function api(path) {
+  try {
+    const r = await fetch(path, {cache: "no-store"});
+    $("err").textContent = r.ok ? "" : "Fehler " + r.status;
+    return r.ok ? r.json() : null;
+  } catch (e) { $("err").textContent = "keine Verbindung zur Force"; return null; }
+}
+async function loadState() {
+  const j = await api("/state?p=" + edit);
+  if (!j) return;
+  const firstLoad = !S;
+  S = decode(j); rev = j.rev; sel = j.sel;
+  draw();
+  if (firstLoad) sizeCells();   /* the header has its pattern buttons now */
+}
+/* ---- build the board once ---- */
+const heads = $("heads"), cells = $("cells"), cellEl = [];
+for (let t = 0; t < NT; t++) {
+  const h = document.createElement("div");
+  h.className = "head";
+  h.innerHTML = '<button class="nm"></button><button class="ms m">M</button><button class="ms s">S</button>';
+  h.querySelector(".nm").onclick = () => trackTap(t);
+  h.querySelector(".m").onclick = () => send("/track?t=" + t + "&mute=" + (S.tracks[t].m ? 0 : 1), () => S.tracks[t].m ^= 1);
+  h.querySelector(".s").onclick = () => send("/track?t=" + t + "&solo=" + (S.tracks[t].s ? 0 : 1), () => S.tracks[t].s ^= 1);
+  heads.appendChild(h);
+}
+for (let r = 0; r < NT; r++) for (let c = 0; c < 16; c++) {
+  const d = document.createElement("div");
+  d.className = "c"; d.dataset.r = r; d.dataset.c = c;
+  cells.appendChild(d); cellEl.push(d);
+}
+function sizeCells() {
+  /* square-ish cells as wide as the columns allow, but all 16 rows on screen */
+  const w = cells.getBoundingClientRect().width, cw = (w - 15 * 3 - 12) / 16;
+  const ch = (window.innerHeight - document.querySelector("header").offsetHeight - 30 - 15 * 3) / 16;
+  document.documentElement.style.setProperty("--cell", Math.round(Math.max(18, Math.min(cw, ch, 60))) + "px");
+}
+window.addEventListener("resize", sizeCells);
+/* ---- values per mode: rows (bottom = 0) <-> value ---- */
+const LEVEL = [
+  null,
+  r => Math.round((r + 1) * 127 / 16),          /* velocity 8..127 */
+  r => Math.round((r + 1) * 100 / 16),          /* chance 6..100 % */
+  r => 1 + Math.floor(r / 4),                   /* ratchet 1..4 */
+];
+function rowOf(m, v) {
+  if (m === 1) return Math.max(0, Math.round(v * 16 / 127) - 1);
+  if (m === 2) return Math.max(0, Math.round(v * 16 / 100) - 1);
+  return (v - 1) * 4 + 3;
+}
+function draw() {
+  if (!S) return;
+  /* patterns */
+  const pb = $("pats");
+  if (!pb.children.length) for (let p = 0; p < 16; p++) { const b = document.createElement("button"); b.textContent = p + 1; b.onclick = () => patTap(p); pb.appendChild(b); }
+  [...pb.children].forEach((b, p) => {
+    b.className = (S.pats[p].u ? "used " : "") + (p === play ? "play " : "") + (p === edit ? "edit " : "") + (p === queued ? "queued" : "");
+    b.title = S.pats[p].n || ("Pattern " + (p + 1));
+  });
+  /* heads */
+  [...heads.children].forEach((h, t) => {
+    const tr = S.tracks[t], nm = h.querySelector(".nm");
+    nm.textContent = tr.n + (S.len[t] !== 16 ? " /" + S.len[t] : "");
+    nm.className = "nm" + (t === sel && mode ? " sel" : "") + (S.learn === t ? " learn" : "");
+    h.querySelector(".m").setAttribute("aria-pressed", tr.m ? "true" : "false");
+    h.querySelector(".s").setAttribute("aria-pressed", tr.s ? "true" : "false");
+    h.classList.toggle("muted", !!tr.m || (S.tracks.some(x => x.s) && !tr.s));
+  });
+  drawCells();
+  $("swing").value = S.swing; $("swing_v").textContent = S.swing + "%";
+  $("gate").value = S.gate; $("gate_v").textContent = S.gate + "%";
+  $("tv").value = S.tv; $("tv_v").textContent = S.tv;
+  drawPresets();
+  if ($("sheet").classList.contains("open")) fillSheet();
+}
+function drawCells() {
+  if (!S) return;
+  const showPh = run && edit === play;
+  for (let r = 0; r < NT; r++) for (let c = 0; c < 16; c++) {
+    const d = cellEl[r * 16 + c], s = page * 16 + c, g = (c >> 2) & 1;
+    let cls = "c" + (g ? " g2" : ""), html = "", op = "";
+    if (mode === 0) {
+      /* beyond its length a track repeats: those cells show (and edit) the looped step, dimmed */
+      const t = r, len = S.len[t], w = s % len, v = S.V[t][w], wrap = s >= len;
+      if (wrap) cls += " wrap";
+      if (v) {
+        cls = "c on" + (wrap ? " wrap" : "");
+        op = String((0.35 + 0.65 * v / 127) * (wrap ? 0.45 : 1));
+        if (S.P[t][w] < 100) html += '<div class="p" style="right:' + (3 + (100 - S.P[t][w]) / 100 * 80) + '%"></div>';
+        if (S.R[t][w] > 1) html += '<span class="r">' + S.R[t][w] + 'x</span>';
+      }
+      if (showPh && pos[t] === w && (!wrap || len >= 16)) cls += " ph";
+    } else {
+      const t = sel, row = 15 - r, on = S.V[t][s] > 0;
+      const val = mode === 1 ? S.V[t][s] : mode === 2 ? S.P[t][s] : S.R[t][s];
+      const top = rowOf(mode, val);
+      if (s >= S.len[t]) cls = "c dead";
+      else if ((mode === 1 && on) || mode > 1) {
+        if (row === top) cls = "c bartop"; else if (row < top) cls = "c bar";
+        if (!on && mode > 1 && row <= top) op = "0.35";
+      }
+      if (showPh && pos[t] === s && row === 0) cls += " ph";
+    }
+    if (d.className !== cls) d.className = cls;
+    if (d.innerHTML !== html) d.innerHTML = html;
+    d.style.opacity = op;
+  }
+}
+/* ---- painting on the grid ---- */
+let paint = null;
+function cellAt(x, y) {
+  const el = document.elementFromPoint(x, y);
+  const c = el && el.closest ? el.closest(".c") : null;
+  return c && cells.contains(c) ? c : null;
+}
+function applyCell(c) {
+  const r = +c.dataset.r, s = page * 16 + +c.dataset.c, key = r + ":" + s;
+  if (!S) return;
+  if (mode === 0) {
+    if (paint.done.has(key)) return;
+    paint.done.add(key);
+    const t = r, w = s % S.len[t];
+    if (paint.val === undefined) paint.val = S.V[t][w] ? 0 : S.tv;
+    if (S.V[t][w] === paint.val || (paint.val && S.V[t][w])) return;
+    S.V[t][w] = paint.val;
+    send("/step?p=" + edit + "&t=" + t + "&s=" + w + "&v=" + paint.val);
+  } else {
+    const t = sel;
+    if (s >= S.len[t]) return;
+    if (paint.last[s] === r) return;
+    paint.last[s] = r;
+    const v = LEVEL[mode](15 - r);
+    if (mode === 1) { S.V[t][s] = v; send("/step?p=" + edit + "&t=" + t + "&s=" + s + "&v=" + v); }
+    else if (mode === 2) { S.P[t][s] = v; send("/step?p=" + edit + "&t=" + t + "&s=" + s + "&prob=" + v); }
+    else { S.R[t][s] = v; send("/step?p=" + edit + "&t=" + t + "&s=" + s + "&rat=" + v); }
+  }
+  drawCells();
+}
+cells.addEventListener("pointerdown", ev => {
+  const c = cellAt(ev.clientX, ev.clientY);
+  if (!c) return;
+  ev.preventDefault();
+  paint = {done: new Set(), val: undefined, last: {}};
+  cells.setPointerCapture(ev.pointerId);
+  applyCell(c);
+});
+cells.addEventListener("pointermove", ev => {
+  if (!paint) return;
+  const c = cellAt(ev.clientX, ev.clientY);
+  if (c) applyCell(c);
+});
+const endPaint = () => { paint = null; };
+cells.addEventListener("pointerup", endPaint);
+cells.addEventListener("pointercancel", endPaint);
+/* ---- requests: change locally, send, the next /pos brings the new rev ---- */
+let busy = Promise.resolve();
+function send(path, local) {
+  if (local) { local(); draw(); }
+  busy = busy.then(() => api(path)).then(j => { if (j && j.rev !== undefined) rev = j.rev; });
+  return busy;
+}
+function trackTap(t) {
+  sel = t;
+  send("/hit?t=" + t);
+  if (mode) { draw(); return; }
+  openSheet(t);
+}
+function patTap(p) {
+  if (tapMode === 0) send("/pat?play=" + p);
+  if (edit !== p) { edit = p; loadState(); }
+}
+/* ---- header controls ---- */
+function segment(id, attr, cb) {
+  const seg = $(id);
+  seg.querySelectorAll("button").forEach(b => b.onclick = () => {
+    seg.querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", x === b ? "true" : "false"));
+    cb(+b.dataset[attr]);
+  });
+}
+segment("modes", "m", m => { mode = m; draw(); });
+segment("pages", "p", p => { page = p; follow = false; $("follow").setAttribute("aria-pressed", "false"); drawCells(); });
+segment("tapmode", "t", t => { tapMode = t; });
+segment("pmode", "x", x => { pmode = x; drawPresets(); });
+$("follow").onclick = () => { follow = !follow; $("follow").setAttribute("aria-pressed", follow ? "true" : "false"); };
+function setPage(p) {
+  if (p === page) return;
+  page = p;
+  $("pages").querySelectorAll("button").forEach((b, i) => b.setAttribute("aria-pressed", i === p ? "true" : "false"));
+  drawCells();
+}
+for (const k of ["swing", "gate", "tv"]) {
+  $(k).oninput = () => { $(k + "_v").textContent = $(k).value + (k === "tv" ? "" : "%"); };
+  $(k).onchange = () => send("/glob?" + k + "=" + $(k).value, () => S[k] = +$(k).value);
+}
+$("map0").onclick = () => send("/notes?map=0").then(loadState);
+$("map1").onclick = () => send("/notes?map=1").then(loadState);
+$("unmute").onclick = () => send("/track?t=-1&mute=0", () => S.tracks.forEach(x => x.m = 0));
+$("unsolo").onclick = () => send("/track?t=-1&solo=0", () => S.tracks.forEach(x => x.s = 0));
+$("pclear").onclick = () => { if (confirm("Pattern " + (edit + 1) + " leeren?")) send("/pat?clear=" + edit).then(loadState); };
+$("pcopy").onclick = () => {
+  const to = parseInt(prompt("Pattern " + (edit + 1) + " kopieren nach (1–16):", String(edit + 2 > 16 ? 1 : edit + 2)), 10);
+  if (to >= 1 && to <= 16) send("/pat?copy=" + edit + "&to=" + (to - 1)).then(loadState);
+};
+$("pname").onclick = () => {
+  const n = prompt("Name für Pattern " + (edit + 1) + ":", S.pats[edit].n);
+  if (n !== null) send("/pat?p=" + edit + "&name=" + encodeURIComponent(n)).then(loadState);
+};
+/* ---- presets ---- */
+function drawPresets() {
+  const box = $("presets");
+  if (!S || !S.presets) return;
+  if (box.children.length !== S.presets.length) {
+    box.innerHTML = "";
+    S.presets.forEach((p, i) => { const b = document.createElement("button"); b.onclick = () => presetTap(i); box.appendChild(b); });
+  }
+  [...box.children].forEach((b, i) => {
+    b.textContent = (i + 1) + "  " + S.presets[i].n;
+    b.className = (S.presets[i].u ? "" : "empty ") + (i + 1 === S.preset ? "cur" : "");
+  });
+}
+function presetTap(i) {
+  if (pmode === 0) {
+    if (!S.presets[i].u) return;
+    if (confirm("Preset " + (i + 1) + " laden? Kit und alle Patterns werden ersetzt.")) send("/preset?load=" + (i + 1)).then(loadState);
+  } else {
+    const n = prompt("Speichern in Preset " + (i + 1) + " – Name:", S.presets[i].u && !/^\d\d \(empty\)$/.test(S.presets[i].n) ? S.presets[i].n : "");
+    if (n !== null) send("/preset?save=" + (i + 1) + "&name=" + encodeURIComponent(n)).then(loadState);
+  }
+}
+/* ---- track sheet ---- */
+let sheetT = 0;
+const NN = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+const noteName = n => n + "  " + NN[n % 12] + (Math.floor(n / 12) - 2);
+function openSheet(t) { sheetT = t; fillSheet(true); $("sheet").classList.add("open"); }
+function fillSheet(full) {
+  const t = sheetT, tr = S.tracks[t];
+  $("s_title").textContent = "Spur " + (t + 1) + " · Pattern " + (edit + 1);
+  if (full || document.activeElement !== $("s_name")) $("s_name").value = tr.n;
+  $("s_note").textContent = noteName(tr.note);
+  $("s_ch").textContent = "Kanal " + tr.ch;
+  $("s_len").value = S.len[t]; $("s_len_v").textContent = S.len[t];
+  $("s_learn").setAttribute("aria-pressed", S.learn === t ? "true" : "false");
+}
+$("s_close").onclick = () => $("sheet").classList.remove("open");
+$("sheet").onclick = ev => { if (ev.target === $("sheet")) $("sheet").classList.remove("open"); };
+$("s_hit").onclick = () => send("/hit?t=" + sheetT);
+$("s_name").onchange = () => send("/track?t=" + sheetT + "&name=" + encodeURIComponent($("s_name").value), () => S.tracks[sheetT].n = $("s_name").value);
+document.querySelectorAll("[data-d]").forEach(b => b.onclick = () => {
+  const n = Math.max(0, Math.min(127, S.tracks[sheetT].note + +b.dataset.d));
+  send("/track?t=" + sheetT + "&note=" + n, () => S.tracks[sheetT].note = n).then(() => send("/hit?t=" + sheetT));
+});
+$("ch_m").onclick = () => { const c = Math.max(1, S.tracks[sheetT].ch - 1); send("/track?t=" + sheetT + "&ch=" + c, () => S.tracks[sheetT].ch = c); };
+$("ch_p").onclick = () => { const c = Math.min(16, S.tracks[sheetT].ch + 1); send("/track?t=" + sheetT + "&ch=" + c, () => S.tracks[sheetT].ch = c); };
+$("s_learn").onclick = () => send("/learn?t=" + (S.learn === sheetT ? -1 : sheetT), () => S.learn = S.learn === sheetT ? -1 : sheetT);
+$("s_len").oninput = () => { $("s_len_v").textContent = $("s_len").value; };
+$("s_len").onchange = () => setLen(+$("s_len").value);
+document.querySelectorAll("[data-l]").forEach(b => b.onclick = () => setLen(+b.dataset.l));
+function setLen(l) { send("/len?p=" + edit + "&t=" + sheetT + "&len=" + l, () => S.len[sheetT] = l); }
+$("s_lenall").onclick = () => { const l = S.len[sheetT]; send("/len?p=" + edit + "&t=-1&len=" + l, () => S.len.fill(l)); };
+$("s_rl").onclick = () => send("/edit?op=rot&p=" + edit + "&t=" + sheetT + "&d=-1").then(loadState);
+$("s_rr").onclick = () => send("/edit?op=rot&p=" + edit + "&t=" + sheetT + "&d=1").then(loadState);
+$("s_rep").onclick = () => send("/edit?op=repeat&p=" + edit + "&t=" + sheetT + "&n=" + S.len[sheetT]).then(() => send("/len?p=" + edit + "&t=" + sheetT + "&len=64")).then(loadState);
+$("s_clear").onclick = () => { if (confirm("Spur " + (sheetT + 1) + " in Pattern " + (edit + 1) + " leeren?")) send("/edit?op=clear&p=" + edit + "&t=" + sheetT).then(loadState); };
+/* ---- transport poll ---- */
+function where() {
+  const w = $("where");
+  if (!run || step < 0) { w.textContent = "STOP · Pattern " + (play + 1) + (queued >= 0 ? " → " + (queued + 1) : ""); w.className = "where stop"; }
+  else { w.textContent = (Math.floor(step / 16) + 1) + "." + (Math.floor(step % 16 / 4) + 1) + "." + (step % 4 + 1) + " · Pattern " + (play + 1) + (queued >= 0 ? " → " + (queued + 1) : ""); w.className = "where"; }
+}
+let first = true;
+async function poll() {
+  let j = null;
+  try { const r = await fetch("/pos", {cache: "no-store"}); if (r.ok) j = await r.json(); } catch (e) {}
+  if (j) {
+    const was = play;
+    pos = j.pos; run = j.run; play = j.play; queued = j.queued; step = j.step;
+    if (first) { edit = play; first = false; }
+    if (tapMode === 0 && was !== play && edit === was) edit = play;   /* the grid follows a pattern that lands */
+    if (follow && run && edit === play) {
+      const t = !S ? -1 : mode ? sel : pos.findIndex((p, i) => p >= 0 && S.len[i] === Math.max(...S.len));
+      if (t >= 0 && pos[t] >= 0) setPage(Math.floor(pos[t] / 16));
+    }
+    if (j.rev !== rev || !S || S.p !== edit) await loadState();
+    else {
+      drawCells();
+      [...$("pats").children].forEach((b, p) => { b.classList.toggle("queued", p === queued); b.classList.toggle("play", p === play); });
+    }
+    where();
+    $("err").textContent = "";
+  } else $("err").textContent = "keine Verbindung zur Force";
+  setTimeout(poll, j ? 100 : 1000);
+}
+sizeCells();
+poll();
+</script>
+</body>
+</html>
